@@ -1,8 +1,10 @@
-# Create a TRU NCFT agent identity
+# TRU NCFT agents: identity, persistent memory, and approved checkpoint anchoring
 
-**Stop point: before the first AI evolution.** This creates an agent identity and local files. It does not install an AI model, launch a persistent agent, or anchor its memory on-chain.
+This reusable Linux/Bash guide covers issuance, a first reviewed AI evolution, local chat with explicit persistent memory, and an issuer-approved memory checkpoint confirmed on-chain. Each agent uses its own identity, image, manifest, and private runtime directory. No agent-specific Python fork is needed.
 
-These menu numbers and RPC examples match the reviewed TRU Core 0.07.7. Other builds may use different menus. This is a Linux/Bash guide for an already configured mainnet node and wallet; it is not a node installation guide.
+**Version scope:** creation steps follow the reviewed 0.07.7 menus; checkpoint steps require Core 0.07.8 with TRU_AGENT_CHECKPOINT_02 and runtime 0.2.0. Unattended approval is not implemented. Core automates submission and recovery after explicit approval. This guide does not install an inference model.
+
+Menu numbers and RPC examples are specific to the reviewed builds. Other builds may use different menus. This is a Linux/Bash guide for an already configured mainnet node and wallet; it is not a node installation guide.
 
 ## Before starting
 
@@ -354,18 +356,222 @@ A listening process only shows that a service is present. It does not prove the 
 
 The reviewed Core default endpoint is `http://127.0.0.1:5051/v1/chat/completions`. Provider environment settings must be available to the process that starts Core; exporting them in an unrelated shell does not reconfigure a running node. Do not expose an unauthenticated model service publicly.
 
-## Stop here: ready for a separate first-evolution test
+## 8. Preview, approve, and verify the first AI evolution
 
-You have completed:
+In the running Core console:
 
-- One confirmed quantity-one NCFT representing your new agent identity.
-- A hosted avatar and local byte hash.
-- Recorded issuance evidence.
-- A private manifest and empty memory workspace.
+1. Select **17 — Token / AI Tools → 2 — AI Evolution → 1 — Preview AI Evolution**.
+2. Select your own NCFT by its actual short token ID.
+3. Select your configured provider (reviewed choice: **1 — nemotron**).
+4. At the scenario prompt, press Enter for custom free-form input.
+5. Use the following trigger, replacing `AGENT_NAME`:
 
-You have **not** completed AI evolution, installed a persistent-agent runtime, or anchored a memory checkpoint.
+```text
+Initialize AGENT_NAME's first reviewed evolution. Its quantity-one NCFT issuance is confirmed, and its local manifest and empty memory workspace have been created. Persistent-agent runtime, automatic memory updates, and automatic checkpoint anchoring are not implemented yet. Preserve its identity and ownership. Describe this prototype state concisely without claiming completed jobs, autonomous spending, or functioning persistent memory.
+```
 
-The next separate test uses **17 — Token / AI Tools → 2 — AI Evolution → 1 — Preview AI Evolution**. Review the generated content before using **Commit Exact Preview**. This README intentionally stops before preview or commit.
+Review the generated preview. If it is inaccurate, cancel and correct it. If accurate, select **2 — Commit Exact Preview**, inspect the token and epoch, then type **COMMIT**. This is a real approved evolution and anchor transaction. Keep the existing issuer and oracle funding setup available.
+
+Commit acceptance is not confirmation. Back at the Linux shell, wait and check:
+
+```bash
+"$TRU_CLI" raw verifytokenevolution \
+  "{\"tokenID\":\"$AGENT_TOKEN_ID\",\"require_confirmed\":true}"
+```
+
+Proceed when the history and confirmed anchor checks pass. The provenance view should show confirmed issuance, valid root/history, verified original issuer authority, valid anchor payload, and a confirmed anchor transaction. Pending is not a reason to commit again. This first normal evolution is required before the exact checkpoint workflow below.
+
+Evolution records describe a reviewed state at that time. They do not activate a runtime. A field such as `self_evolution: enabled` does not grant spending or automatic execution.
+
+## 9. Verify the runtime and Core checkpoint installation
+
+The repository must include `tools/agent-runtime` version 0.2.0 and the Core checkpoint integration. If installing from separate packages, follow their exact compatibility checks and README instructions: TRU_AGENT_RUNTIME_01 followed by TRU_AGENT_CHECKPOINT_02_PINNED on its supported PERF-06 baseline. Do not force a drifted installer or manufacture missing baseline files.
+
+The standalone runtime needs Python 3.10+ and its standard library. The Core checkpoint patch requires rebuilding and restarting Core; copying Python scripts alone does not upgrade the running node. With the patch applied, build using your existing build directory:
+
+```bash
+cmake --build "$CORE_ROOT/build-native" --target tru_advanced tru-cli -j4
+python3 "$CORE_ROOT/tools/agent-runtime/selftest.py"
+python3 "$CORE_ROOT/tools/agent-runtime/selftest_anchor.py"
+```
+
+Expected offline results: 12 runtime tests and 5 anchor tests pass. These do not test your real model or mainnet. Restart the rebuilt Core using your existing shutdown/start procedure, data directory, and flags. Check build 0.07.8. Do not launch two nodes against the same data directory. This workflow requires no CMakeLists edits.
+
+If the running node and runtime are already upgraded, skip installation and rebuild. A source directory named TRU-Core does not establish which executable your node is running.
+
+## 10. Initialize this agent's private runtime once
+
+In the shell with your settings from step 2:
+
+```bash
+export TRU_AGENT_CODE="$CORE_ROOT/tools/agent-runtime/tru_agent.py"
+export TRU_AGENT_HOME="$AGENT_HOME/runtime"
+export TRU_AGENT_MANIFEST="$AGENT_HOME/manifest-v1.json"
+
+tru_agent() {
+  python3 "$TRU_AGENT_CODE" --home "$TRU_AGENT_HOME" "$@"
+}
+```
+
+If you intentionally created a later manifest revision, set `TRU_AGENT_MANIFEST` to that file before initialization. For an existing runtime, set `TRU_AGENT_HOME` to its actual location instead of creating another home. Keep all private data outside source repositories.
+
+Initialize only a new runtime:
+
+```bash
+umask 077
+if [ -f "$TRU_AGENT_HOME/config.json" ]; then
+  tru_agent status
+else
+  tru_agent init \
+    --manifest "$TRU_AGENT_MANIFEST" \
+    --endpoint http://127.0.0.1:5051/v1/chat/completions \
+    --model nemotron
+fi
+tru_agent status
+```
+
+Use the real model alias supported by your local service. The prototype supports literal loopback HTTP with an explicit port and the `/v1/chat/completions` path. A listening port alone does not prove inference works. If your service needs authentication, provide `NEMOTRON_API_KEY` through the shell environment; do not put it in the manifest or memory.
+
+Initialization snapshots the manifest and creates a separate persistent database. It does not import the empty `memory/current.json` from step 5. The original manifest's `runtime.implemented: false` is a historical declaration, not a live status switch. Do not edit the runtime identity snapshot to update that declaration: its digest binds existing checkpoints.
+
+The shell function and exports last only in this terminal. In a new terminal, restore the same paths and function; do not repeat initialization or issuance. Multiple agents use different homes and manifests, with the same generic Python code.
+
+## 11. Save memory and prove recall after a process restart
+
+Run in the Linux shell:
+
+```bash
+tru_agent chat
+```
+
+At the `You:` prompt, enter these lines one at a time:
+
+```text
+Introduce yourself and explain your current limitations.
+/remember The person using this workspace prefers concise, practical instructions.
+/remember My runtime restart test phrase is copper moon 37.
+/memories
+/exit
+```
+
+Ordinary conversation is not automatically promoted into explicit memory. `/remember` saves the text you choose. The model cannot execute shell commands, sign transactions, or grant itself authority.
+
+Back at the Linux shell:
+
+```bash
+tru_agent memories
+tru_agent clear-chat
+tru_agent status
+tru_agent chat
+```
+
+Status should retain the explicit memories and show `chat_messages: 0`. Ask without supplying the answer:
+
+```text
+What response style does the person using this workspace prefer, and what is my runtime restart test phrase?
+```
+
+A correct response demonstrates recall from the saved facts after clearing chat and starting a new runtime process. `memories` verifies storage separately from model recall. This is prompt-based memory, not model training. Type `/exit` before running further shell commands.
+
+Do not type `tru_agent clear-chat` at `You:`. That is model input, not a shell operation, even if the model claims it cleared anything. `clear-chat` does not securely erase backups or provider logs.
+
+## 12. Create and verify an immutable private checkpoint
+
+From the Linux shell, after saving at least one explicit memory:
+
+```bash
+tru_agent checkpoint
+read -r -p 'Paste the exact CHECKPOINT_FILE path printed above: ' CHECKPOINT_FILE
+export CHECKPOINT_FILE
+tru_agent verify-checkpoint "$CHECKPOINT_FILE"
+```
+
+Expected:
+
+```text
+LOCAL_CHECKPOINT_INTEGRITY=PASS; ONCHAIN_VERIFICATION=NOT_PERFORMED
+```
+
+The private checkpoint includes explicit memories, identity, manifest digest, revision, timestamp, and a random nonce. It excludes chat transcripts. Its filename is the SHA-256 of the exact bytes. Do not edit, publish, or paste this file into an AI evolution prompt. Retain it privately; an on-chain hash cannot recover lost memory bytes.
+
+## 13. Export the public request and approve it inside Core
+
+```bash
+tru_agent anchor-request "$CHECKPOINT_FILE"
+```
+
+Record the printed `PUBLIC_REQUEST_FILE`. It contains only seven commitment fields: schema, token ID, checkpoint SHA-256, manifest SHA-256, memory revision, checkpoint byte length, and scope. It excludes memory text, but the identity, size, revision, and digests are still metadata disclosures.
+
+In the running upgraded Core console:
+
+1. Select **17 — Token / AI Tools → 2 — AI Evolution**.
+2. Select **7 — Preview Exact Agent Checkpoint (no AI call)**.
+3. Paste the full `PUBLIC_REQUEST_FILE` path. Import the small `.request.json`, not the private checkpoint.
+4. Compare the token ID, checkpoint hash, manifest hash, memory revision, and size with the runtime output.
+5. Review the fee and return to the evolution menu as prompted.
+6. Select **2 — Commit Exact Preview**.
+7. Paste the exact checkpoint SHA-256 when requested.
+8. Review the final report and type **COMMIT** only for the intended checkpoint.
+
+The reviewed patch uses a 1000-atom anchor fee (0.00001000 TRU) through the existing oracle funding wallet. The original issuer authorizes the evolution record; the funding address can be different. Use the existing Core wallet approval/unlock flow. The Python runtime receives no wallet key.
+
+Core persists the exact record and anchor queue entry, then its existing worker prepares, submits, tracks, and recovers the transaction. Acceptance is not confirmation. If the terminal disconnects or an operation times out, inspect history before any retry of COMMIT. Do not submit a second evolution just to make pending confirmation disappear.
+
+## 14. Verify confirmation and keep the receipt
+
+Return to the Linux shell. In screen, detach with **Ctrl+A, then D** rather than Ctrl+Z.
+
+```bash
+tru_agent anchor-verify "$CHECKPOINT_FILE" --core-cli "$TRU_CLI"
+```
+
+The supplied CLI must connect to the upgraded node that holds the off-chain evolution history. Successful verification prints:
+
+```text
+CHECKPOINT_ANCHOR_CONFIRMED=YES
+ISSUER_AUTHORIZATION=VERIFIED
+ANCHOR_TXID=<your transaction ID>
+RECEIPT_FILE=<your local receipt path>
+```
+
+This verifies the exact checkpoint descriptor against the configured Core's confirmed history, issuer authorization, issuance identity, and anchor payload. The runtime trusts that Core's chain view; it does not independently validate headers. A receipt is a point-in-time result and should be checked again if chain state changes.
+
+If pending, wait and repeat `anchor-verify`, not COMMIT. An invalid or mismatched result needs investigation; it does not become a success merely by waiting. An error does not create a confirmed receipt.
+
+The completed cycle is: explicit memory saved, process restarted, recall checked, private checkpoint hashed, public request reviewed, issuer-approved record committed, anchor confirmed, and local receipt saved. The commitment does not prove memories are true or that the underlying private file remains available.
+
+For the next checkpoint, first make a meaningful explicit memory change using `remember` or `forget`. This advances the revision. Then repeat steps 12–14 with the newly printed path. A fresh timestamp or nonce at the same revision is not sufficient. Preserve the existing runtime database; resetting it to a lower revision is not a supported history migration.
+
+Exit all agent processes before backing up the complete runtime using a private, preferably encrypted backup procedure. Preserve checkpoints, identity snapshot, database, requests, receipts, and the separate Core off-chain evolution data and wallet backups. Do not assume copying a live database produces a consistent backup. Keep private files outside Git and the website.
+
+## 15. Automation: what works now and what remains to build
+
+| Operation | Installed Core 0.07.8 + runtime 0.2.0 |
+|---|---|
+| Save an explicit memory | User invokes `remember` or `/remember` |
+| Make a local checkpoint and public request | User invokes the runtime commands |
+| Approve the exact checkpoint | Issuer reviews digest and types COMMIT in Core |
+| Prepare, submit, watch, and recover the approved anchor | Existing Core worker automates this |
+| Check confirmation and save a receipt | User invokes `anchor-verify` |
+| Approve future requests without a person | Not implemented |
+| Schedule checkpoints, enforce automated spending budgets, or delegate submission | Not implemented |
+
+`automatic_anchoring: false` and `wallet_access: false` are correct for this release. `chain_authority_verified_by_runtime: false` means routine local runtime status is not an ownership attestation; the separate successful anchor verification checks the issuer proof through Core.
+
+Do not toggle these status fields, pipe COMMIT into the console, or give an AI provider wallet credentials. There is no documented unattended-enable command in this release.
+
+### Recommended next implementation: bounded Core authorization
+
+This is a development plan, not functionality installed by this README:
+
+1. **Issuer enables a scoped policy in Core.** Bind it to the network, token, issuer, approved runtime credential, permitted manifest, and checkpoint-only operation. Set expiry, minimum interval, maximum anchors per day, per-transaction fee ceiling, total spending budget, and an immediate revoke/pause control. Start disabled.
+2. **A local scheduler prepares candidates only after memory revision changes.** Coalesce frequent changes, allow only one pending checkpoint per token, and retain the immutable private file. Scheduling alone must not grant signing permission. An interactive chat currently holds the runtime lock; the scheduler must defer while busy rather than remove that lock.
+3. **An authenticated, narrowly scoped handoff sends only the public descriptor.** The runtime may request a checkpoint but cannot choose arbitrary recipients, transfer tokens, sign arbitrary payloads, or access a general wallet API. Treat model text as untrusted input, not authorization.
+4. **Core enforces policy on every request.** Recheck issuer eligibility, parent history, allowed manifest, strictly advancing revision, request limits, and remaining budget. Use a durable request identifier and atomically reserve budgets with queue persistence so retries and crashes cannot double-spend the allowance. Serialize checkpoint and other evolution commits against the same parent.
+5. **Reuse the existing queue and confirmation verifier.** Persist receipt/status, retry the same prepared request safely, recheck after reorganizations, and pause on conflicts, revoked policy, authorization failure, or insufficient funds. An RPC timeout must not create a new evolution.
+6. **Test before enabling unattended spending.** Cover unauthorized callers, wrong token/manifest, replay, duplicate concurrent requests, budget exhaustion, expiry/revocation, locked wallet, crashes around persistence/broadcast, reorgs, and evolution-parent conflicts. Then perform a supervised trial with a small finite allowance.
+
+The AI can eventually initiate a checkpoint request under this design, while Core retains custody and enforces the issuer's permission. This need not change consensus if it only authorizes the same currently valid record and anchor transactions; implementation review must confirm that boundary. It is a separate patch, not a setting change or a promise that arbitrary autonomous wallet access is safe.
 
 ## Troubleshooting
 
@@ -380,3 +586,18 @@ The next separate test uses **17 — Token / AI Tools → 2 — AI Evolution →
 | No evolution history | Expected before first evolution; it is not proof of completed evolution. |
 | No listener on port 5051 | Configure your intended inference provider separately before previewing evolution. |
 | New terminal has empty variables | Rerun your path/settings exports and enter the recorded identifiers. Do not rerun issuance. |
+
+Additional runtime troubleshooting:
+
+| Symptom | What to do |
+|---|---|
+| `tru_agent: command not found` | Restore the exports and shell function from step 10 in this terminal. |
+| `anchor-request` is not a known command | Check the actual script path and runtime version; install the supported checkpoint integration. |
+| Runtime is busy | Exit the other chat/process and retry; do not bypass its lock. |
+| Core menu option 7 is missing | Verify the rebuilt checkpoint-enabled executable is the running node. |
+| No prior evolution | Complete and confirm step 8 before a checkpoint commit. |
+| Non-advancing revision or duplicate digest | Inspect existing history; make a real memory change for a later checkpoint. Do not edit revision counters manually. |
+| Anchor is pending | Recheck confirmation; do not repeat COMMIT. |
+| Issuer authorization fails | Stop and inspect the issuer identity and Core authorization state; ownership alone may not suffice. |
+
+For GitHub, publish reusable software and this guide only. Private agent homes, keys, checkpoints, receipts, and patch backups do not belong in the repository.
