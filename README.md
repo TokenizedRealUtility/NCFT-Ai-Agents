@@ -2,8 +2,8 @@
 
 This reusable Linux/Bash guide covers issuance, a first reviewed AI evolution, local chat with explicit persistent memory, and an issuer-approved memory checkpoint confirmed on-chain. Each agent uses its own identity, image, manifest, and private runtime directory. No agent-specific Python fork is needed.
 
-**Version scope:** Core 0.07.9 with TRU_AGENT_CHECKPOINT_02 and
-TRU_AGENT_AUTO_03, including the mainnet genesis-height fix (genesis lookup at
+**Version scope:** Core 0.07.9 with TRU_AGENT_CHECKPOINTS and
+TRU_AGENT_AUTOMATIC_CORE, including the mainnet genesis height fix (genesis lookup at
 height 1), plus runtime 0.3.0. This guide covers a new agent from issuance through
 manual baseline anchoring and bounded automatic checkpoint anchoring. It does
 not install Core or an inference model. Existing agents must keep their existing
