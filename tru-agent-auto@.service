@@ -1,0 +1,16 @@
+[Unit]
+Description=TRU checkpoint watcher for %i
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/tru-agent/%i.env
+Environment=PYTHONUNBUFFERED=1
+UMask=0077
+ExecStart=/usr/bin/python3 ${TRU_AGENT_CODE} --home ${TRU_AGENT_HOME} auto-watch --core-cli ${TRU_CORE_CLI} --interval 60
+Restart=on-failure
+RestartSec=15
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
