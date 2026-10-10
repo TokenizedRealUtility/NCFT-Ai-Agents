@@ -2,7 +2,7 @@
 
 This reusable Linux/Bash guide covers issuance, a first reviewed AI evolution, local chat with explicit persistent memory, and an issuer-approved memory checkpoint confirmed on-chain. Each agent uses its own identity, image, manifest, and private runtime directory. No agent-specific Python fork is needed.
 
-**Version scope:** Core 0.07.9 with TRU_AGENT_CHECKPOINTS and
+**Version scope:** Core 0.08.0 with TRU_AGENT_CHECKPOINTS and
 TRU_AGENT_AUTOMATIC_CORE, including the mainnet genesis height fix (genesis lookup at
 height 1), plus runtime 0.3.0. This guide covers a new agent from issuance through
 manual baseline anchoring and bounded automatic checkpoint anchoring. It does
@@ -447,7 +447,7 @@ python3 "$CORE_ROOT/tools/agent-runtime/selftest_anchor.py"
 python3 "$CORE_ROOT/tools/agent-runtime/selftest_auto.py"
 ```
 
-Expected offline results: 12 runtime, 5 anchor and 12 automation/provider tests pass (29 total). These do not test your real model or mainnet. Restart the rebuilt Core using your existing shutdown/start procedure, data directory, and flags. Check build 0.07.9. Do not launch two nodes against the same data directory. This workflow requires no CMakeLists edits.
+Expected offline results: 12 runtime, 5 anchor and 12 automation/provider tests pass (29 total). These do not test your real model or mainnet. Restart the rebuilt Core using your existing shutdown/start procedure, data directory, and flags. Check build 0.08.0. Do not launch two nodes against the same data directory. This workflow requires no CMakeLists edits.
 
 If the running node and runtime are already upgraded, skip installation and rebuild. A source directory named TRU-Core does not establish which executable your node is running.
 
