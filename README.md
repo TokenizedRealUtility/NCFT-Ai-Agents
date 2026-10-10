@@ -86,7 +86,7 @@ Have the values below ready before entering the wizard; prompts may time out. If
 | style_descriptor | Your desired style, for example `helpful, concise, provenance-aware`. |
 | dynamic_morph | `issuer-authorized evolution; persistent runtime in development` |
 | update_interval | `manual reviewed milestones` |
-| creator_signature | Leave blank; do not invent a cryptographic signature. |
+| creator_signature | make it up ~> your signature , or even a cryptographic signature. |
 | last_evolution | Leave blank; allow Core to manage evolution bookkeeping. |
 | Upload image to IPFS? | `n` when using the HTTPS image in this guide. |
 
