@@ -400,12 +400,12 @@ If a manifest needs correction, preserve the old file and create `manifest-v2.js
 For the reviewed default Nemotron integration:
 
 ```bash
-ss -ltnp | grep ':5051'
+ss -ltnp | grep ':8081'
 ```
 
 A listening process only shows that a service is present. It does not prove the correct model is loaded, Core can authenticate, or inference succeeds. If your provider is remote or uses a different port, this local check is not applicable.
 
-The reviewed Core default endpoint is `http://127.0.0.1:5051/v1/chat/completions`. Provider environment settings must be available to the process that starts Core; exporting them in an unrelated shell does not reconfigure a running node. Do not expose an unauthenticated model service publicly.
+The reviewed Core default endpoint is `http://127.0.0.1:8081/v1/chat/completions`. Provider environment settings must be available to the process that starts Core; exporting them in an unrelated shell does not reconfigure a running node. Do not expose an unauthenticated model service publicly.
 
 ## 8. Preview, approve, and verify the first AI evolution
 
@@ -477,7 +477,7 @@ else
   tru_agent init \
     --manifest "$TRU_AGENT_MANIFEST" \
     --provider nemotron \
-    --endpoint http://127.0.0.1:5051/v1/chat/completions \
+    --endpoint http://127.0.0.1:8081/v1/chat/completions \
     --model nemotron
 fi
 tru_agent status
@@ -505,7 +505,7 @@ tru_agent provider-set --provider claude --model "$AGENT_MODEL" --allow-remote
 tru_agent provider-set --provider ollama --model "$AGENT_MODEL"
 # Local Nemotron
 tru_agent provider-set --provider nemotron --model "$AGENT_MODEL" \
-  --endpoint http://127.0.0.1:5051/v1/chat/completions
+  --endpoint http://127.0.0.1:8081/v1/chat/completions
 ```
 
 For a custom OpenAI-compatible chat service, enter its full endpoint:
@@ -950,7 +950,7 @@ consequences for existing checkpoints. Only publish reusable code and templates.
 | Issuance not confirmed | Wait and inspect the existing TXID. Do not mint another copy to fix a confirmation delay. |
 | Existing files cause a refusal | Inspect and preserve them. Use a new agent directory only for a genuinely new agent. |
 | No evolution history | Expected before first evolution; it is not proof of completed evolution. |
-| No listener on port 5051 | Configure your intended inference provider separately before previewing evolution. |
+| No listener on port 8081 | Configure your intended inference provider separately before previewing evolution. |
 | New terminal has empty variables | Rerun your path/settings exports and enter the recorded identifiers. Do not rerun issuance. |
 
 Additional runtime troubleshooting:
