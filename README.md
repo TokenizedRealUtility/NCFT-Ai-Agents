@@ -2,7 +2,58 @@
 
 This reusable Linux/Bash guide covers issuance, a first reviewed AI evolution, local chat with explicit persistent memory, and an issuer-approved memory checkpoint confirmed on-chain. Each agent uses its own identity, image, manifest, and private runtime directory. No agent-specific Python fork is needed.
 
-**Version scope:** creation steps follow the reviewed 0.07.7 menus; checkpoint steps require Core 0.07.8 with TRU_AGENT_CHECKPOINT_02 and runtime 0.2.0. Unattended approval is not implemented. Core automates submission and recovery after explicit approval. This guide does not install an inference model.
+**Version scope:** Core 0.07.9 with TRU_AGENT_CHECKPOINT_02 and
+TRU_AGENT_AUTO_03, including the mainnet genesis-height fix (genesis lookup at
+height 1), plus runtime 0.3.0. This guide covers a new agent from issuance through
+manual baseline anchoring and bounded automatic checkpoint anchoring. It does
+not install Core or an inference model. Existing agents must keep their existing
+runtime home, identity snapshot, policy and history; skip completed setup steps.
+
+The runtime supports Nemotron, OpenAI, Grok, Claude, Ollama and custom
+OpenAI-compatible chat services. Model IDs must be supported by your actual
+service/account. Core's evolution provider configuration is separate from the
+Python chat runtime; selecting a runtime provider does not reconfigure Core.
+
+## Configuration files supplied
+
+- `tru.conf.example`: local RPC defaults and a disabled checkpoint section.
+- `ai.env.example`: supported credential names, no real secrets.
+- `tru-agent-auto@.service`: optional repeating watcher service.
+- `SERVICE.md`: generic service setup, after the foreground test passes.
+
+For an existing node, merge the checkpoint section into its actual working
+config. Do not replace the whole file. The example deliberately leaves existing
+oracle funding, encrypted wallet and reorganization settings to your deployment.
+Provider keys do not grant checkpoint authority. A label or DID is not permission.
+
+From this extracted setup folder, create the private provider environment once:
+
+```bash
+umask 077
+mkdir -p "$HOME/.config/tru-agent"
+chmod 700 "$HOME/.config/tru-agent"
+if [ -e "$HOME/.config/tru-agent/ai.env" ]; then
+  echo 'Existing ai.env retained; inspect/edit it instead.'
+else
+  cp ai.env.example "$HOME/.config/tru-agent/ai.env"
+  chmod 600 "$HOME/.config/tru-agent/ai.env"
+fi
+nano "$HOME/.config/tru-agent/ai.env"
+```
+
+Uncomment only needed keys and replace their placeholders locally. Load the file
+in the shell that starts chat; also load it before starting Core if its evolution
+provider needs those credentials. Core does not automatically source this file.
+
+```bash
+set -a
+source "$HOME/.config/tru-agent/ai.env"
+set +a
+```
+
+Do not paste secrets into chat, memory, manifests or policy JSON. The watcher
+needs no model API key: checkpoint anchoring makes no AI inference call.
+
 
 Menu numbers and RPC examples are specific to the reviewed builds. Other builds may use different menus. This is a Linux/Bash guide for an already configured mainnet node and wallet; it is not a node installation guide.
 
@@ -31,7 +82,7 @@ Have the values below ready before entering the wizard; prompts may time out. If
 | Description | Use the prototype description below, replacing `AGENT_NAME`. |
 | Image/multimedia URL | The plain, working public HTTPS URL from step 2. |
 | Quantity | `1` |
-| ai_engine | `nemotron` if you intend to use the existing Nemotron integration. A label does not install a model. |
+| ai_engine | Your chosen provider label. A label does not install a model or configure an adapter. |
 | style_descriptor | Your desired style, for example `helpful, concise, provenance-aware`. |
 | dynamic_morph | `issuer-authorized evolution; persistent runtime in development` |
 | update_interval | `manual reviewed milestones` |
@@ -385,7 +436,7 @@ Evolution records describe a reviewed state at that time. They do not activate a
 
 ## 9. Verify the runtime and Core checkpoint installation
 
-The repository must include `tools/agent-runtime` version 0.2.0 and the Core checkpoint integration. If installing from separate packages, follow their exact compatibility checks and README instructions: TRU_AGENT_RUNTIME_01 followed by TRU_AGENT_CHECKPOINT_02_PINNED on its supported PERF-06 baseline. Do not force a drifted installer or manufacture missing baseline files.
+The repository must include `tools/agent-runtime` version 0.3.0 and the Core checkpoint/automation integration. If installing from separate packages, follow their exact compatibility checks and README instructions: TRU_AGENT_RUNTIME_01, TRU_AGENT_CHECKPOINT_02_PINNED, then TRU_AGENT_AUTO_03_PINNED and its genesis-height fix on their supported baseline. The original AUTO_03 package used height 0 incorrectly; use corrected release sources or the reviewed fix. Do not apply old pinned patches over newer release sources. Do not force a drifted installer or manufacture missing baseline files.
 
 The standalone runtime needs Python 3.10+ and its standard library. The Core checkpoint patch requires rebuilding and restarting Core; copying Python scripts alone does not upgrade the running node. With the patch applied, build using your existing build directory:
 
@@ -393,9 +444,10 @@ The standalone runtime needs Python 3.10+ and its standard library. The Core che
 cmake --build "$CORE_ROOT/build-native" --target tru_advanced tru-cli -j4
 python3 "$CORE_ROOT/tools/agent-runtime/selftest.py"
 python3 "$CORE_ROOT/tools/agent-runtime/selftest_anchor.py"
+python3 "$CORE_ROOT/tools/agent-runtime/selftest_auto.py"
 ```
 
-Expected offline results: 12 runtime tests and 5 anchor tests pass. These do not test your real model or mainnet. Restart the rebuilt Core using your existing shutdown/start procedure, data directory, and flags. Check build 0.07.8. Do not launch two nodes against the same data directory. This workflow requires no CMakeLists edits.
+Expected offline results: 12 runtime, 5 anchor and 12 automation/provider tests pass (29 total). These do not test your real model or mainnet. Restart the rebuilt Core using your existing shutdown/start procedure, data directory, and flags. Check build 0.07.9. Do not launch two nodes against the same data directory. This workflow requires no CMakeLists edits.
 
 If the running node and runtime are already upgraded, skip installation and rebuild. A source directory named TRU-Core does not establish which executable your node is running.
 
@@ -424,13 +476,69 @@ if [ -f "$TRU_AGENT_HOME/config.json" ]; then
 else
   tru_agent init \
     --manifest "$TRU_AGENT_MANIFEST" \
+    --provider nemotron \
     --endpoint http://127.0.0.1:5051/v1/chat/completions \
     --model nemotron
 fi
 tru_agent status
 ```
 
-Use the real model alias supported by your local service. The prototype supports literal loopback HTTP with an explicit port and the `/v1/chat/completions` path. A listening port alone does not prove inference works. If your service needs authentication, provide `NEMOTRON_API_KEY` through the shell environment; do not put it in the manifest or memory.
+The example initializes local Nemotron. To use another provider, either supply
+its flags at initialization or change provider afterward with `provider-set`.
+This preserves identity and memory. Set the actual model ID first:
+
+```bash
+read -r -p 'Exact model ID supported by your provider: ' AGENT_MODEL
+export AGENT_MODEL
+```
+
+Run ONLY the command for your chosen provider:
+
+```bash
+# OpenAI
+tru_agent provider-set --provider openai --model "$AGENT_MODEL" --allow-remote
+# Grok
+tru_agent provider-set --provider grok --model "$AGENT_MODEL" --allow-remote
+# Claude
+tru_agent provider-set --provider claude --model "$AGENT_MODEL" --allow-remote
+# Local Ollama (model must already be installed in Ollama)
+tru_agent provider-set --provider ollama --model "$AGENT_MODEL"
+# Local Nemotron
+tru_agent provider-set --provider nemotron --model "$AGENT_MODEL" \
+  --endpoint http://127.0.0.1:5051/v1/chat/completions
+```
+
+For a custom OpenAI-compatible chat service, enter its full endpoint:
+
+```bash
+read -r -p 'Full custom chat/completions URL: ' AGENT_ENDPOINT
+# Local loopback service:
+tru_agent provider-set --provider custom --model "$AGENT_MODEL" \
+  --endpoint "$AGENT_ENDPOINT"
+# For a REMOTE HTTPS endpoint, add --allow-remote to the command above.
+```
+
+Remote providers receive prompts, recent chat and saved memories. `--allow-remote`
+is the explicit opt-in. Remote HTTP is refused. Use plain URLs, not Markdown links.
+Custom is not an arbitrary API adapter: it requires OpenAI-compatible text chat.
+Gemini has no native runtime adapter in 0.3.0; the separate Core integration does
+not imply runtime support. Ollama uses its native `/api/chat` adapter.
+
+| Runtime provider | Credential environment variable |
+|---|---|
+| nemotron | NEMOTRON_API_KEY (optional for trusted local harness) |
+| openai | OPENAI_API_KEY |
+| grok | XAI_API_KEY |
+| claude | ANTHROPIC_API_KEY |
+| ollama | None by default |
+| custom | TRU_AGENT_API_KEY |
+
+Only credentials are read from the environment at inference time. Runtime
+provider/model/endpoint are configured through the commands above. Verify actual
+inference with the chat test below. Offline adapter tests do not guarantee every
+model is compatible. Authentication/model/API errors must be resolved with the
+chosen service; do not change wallet or anchoring settings to fix inference.
+
 
 Initialization snapshots the manifest and creates a separate persistent database. It does not import the empty `memory/current.json` from step 5. The original manifest's `runtime.implemented: false` is a historical declaration, not a live status switch. Do not edit the runtime identity snapshot to update that declaration: its digest binds existing checkpoints.
 
@@ -544,34 +652,292 @@ For the next checkpoint, first make a meaningful explicit memory change using `r
 
 Exit all agent processes before backing up the complete runtime using a private, preferably encrypted backup procedure. Preserve checkpoints, identity snapshot, database, requests, receipts, and the separate Core off-chain evolution data and wallet backups. Do not assume copying a live database produces a consistent backup. Keep private files outside Git and the website.
 
-## 15. Automation: what works now and what remains to build
+## 15. Enable and test bounded automatic anchoring
 
-| Operation | Installed Core 0.07.8 + runtime 0.2.0 |
-|---|---|
-| Save an explicit memory | User invokes `remember` or `/remember` |
-| Make a local checkpoint and public request | User invokes the runtime commands |
-| Approve the exact checkpoint | Issuer reviews digest and types COMMIT in Core |
-| Prepare, submit, watch, and recover the approved anchor | Existing Core worker automates this |
-| Check confirmation and save a receipt | User invokes `anchor-verify` |
-| Approve future requests without a person | Not implemented |
-| Schedule checkpoints, enforce automated spending budgets, or delegate submission | Not implemented |
+Saving explicit memory remains a human action. A watcher detects changed memory,
+exports a checkpoint request, Core enforces the issuer's policy and submits the
+anchor, and the watcher verifies confirmation and saves a receipt. No repeated
+COMMIT is required once that finite policy has been authorized. The runtime and
+model still receive no wallet private keys or general spending authority.
 
-`automatic_anchoring: false` and `wallet_access: false` are correct for this release. `chain_authority_verified_by_runtime: false` means routine local runtime status is not an ownership attestation; the separate successful anchor verification checks the issuer proof through Core.
+### 15.1 Prepare once from the latest confirmed checkpoint
 
-Do not toggle these status fields, pipe COMMIT into the console, or give an AI provider wallet credentials. There is no documented unattended-enable command in this release.
+Complete steps 12–14 first. Use the latest confirmed checkpoint, not an older
+checkpoint superseded by another evolution. Skip preparation for an agent that
+already has auto-config.json; preserve its policy and recovery state.
 
-### Recommended next implementation: bounded Core authorization
+```bash
+tru_agent auto-prepare \
+  --checkpoint "$CHECKPOINT_FILE" \
+  --core-cli "$TRU_CLI" \
+  --policy-dir "$HOME/tru-agent-policies/$AGENT_SLUG" \
+  --min-interval 3600 \
+  --max-per-day 4 \
+  --budget-atoms 10000 \
+  --expires-days 7
+export AGENT_POLICY_FILE="$HOME/tru-agent-policies/$AGENT_SLUG/policy.json"
+```
 
-This is a development plan, not functionality installed by this README:
+This starts disabled. Optional `--did` must match the token's issuance meta_id
+when used; omit it if you do not have one. Name/DID label the agent; token,
+issuance, issuer, manifest, request credential and limits authorize it.
+At 1000 atoms per approval the 10000-atom total allowance permits at most ten
+approvals, also subject to four/day, an hour between approvals, and seven-day
+expiry. Budget reservations are not automatically refunded.
 
-1. **Issuer enables a scoped policy in Core.** Bind it to the network, token, issuer, approved runtime credential, permitted manifest, and checkpoint-only operation. Set expiry, minimum interval, maximum anchors per day, per-transaction fee ceiling, total spending budget, and an immediate revoke/pause control. Start disabled.
-2. **A local scheduler prepares candidates only after memory revision changes.** Coalesce frequent changes, allow only one pending checkpoint per token, and retain the immutable private file. Scheduling alone must not grant signing permission. An interactive chat currently holds the runtime lock; the scheduler must defer while busy rather than remove that lock.
-3. **An authenticated, narrowly scoped handoff sends only the public descriptor.** The runtime may request a checkpoint but cannot choose arbitrary recipients, transfer tokens, sign arbitrary payloads, or access a general wallet API. Treat model text as untrusted input, not authorization.
-4. **Core enforces policy on every request.** Recheck issuer eligibility, parent history, allowed manifest, strictly advancing revision, request limits, and remaining budget. Use a durable request identifier and atomically reserve budgets with queue persistence so retries and crashes cannot double-spend the allowance. Serialize checkpoint and other evolution commits against the same parent.
-5. **Reuse the existing queue and confirmation verifier.** Persist receipt/status, retry the same prepared request safely, recheck after reorganizations, and pause on conflicts, revoked policy, authorization failure, or insufficient funds. An RPC timeout must not create a new evolution.
-6. **Test before enabling unattended spending.** Cover unauthorized callers, wrong token/manifest, replay, duplicate concurrent requests, budget exhaustion, expiry/revocation, locked wallet, crashes around persistence/broadcast, reorgs, and evolution-parent conflicts. Then perform a supervised trial with a small finite allowance.
+### 15.2 Configure Core's startup gate
 
-The AI can eventually initiate a checkpoint request under this design, while Core retains custody and enforces the issuer's permission. This need not change consensus if it only authorizes the same currently valid record and anchor transactions; implementation review must confirm that boundary. It is a separate patch, not a setting change or a promise that arbitrary autonomous wallet access is safe.
+Edit the active tru.conf: add or update ONE section with the actual printed
+absolute path. Do not use literal YOUR_USER, $HOME, or ~:
+
+```ini
+[agent_checkpoint]
+enabled=1
+policy_file=/home/YOUR_USER/tru-agent-policies/my-agent/policy.json
+```
+
+Restart Core gracefully with its usual data directory/options. Its startup gate
+is now on, but the generated JSON still has both enable flags false. If using
+only environment configuration instead, omit the section and set
+TRU_AGENT_CHECKPOINT_ENABLE=1 and TRU_AGENT_CHECKPOINT_POLICY_FILE to the absolute
+path before starting Core. Explicit tru.conf values take precedence. Limits and
+individual permissions belong in policy.json, not arbitrary tru.conf keys.
+
+### 15.3 Review and explicitly enable the bounded policy
+
+Use your actual printed path:
+
+```bash
+export AGENT_POLICY_FILE="$HOME/tru-agent-policies/$AGENT_SLUG/policy.json"
+python3 -m json.tool "$AGENT_POLICY_FILE"
+```
+
+Review the token, issuance, original issuer, approved manifest, interval, daily cap, expiry, and total budget. This is the authorization for future unattended checkpoint fees. Only after that review, enable the policy using the following command. It enables the single generated agent; multi-agent operators must select their intended entries individually.
+
+```bash
+python3 - <<'PY'
+import json, os, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(os.environ['TRU_AGENT_CODE']).parent))
+import tru_agent as rt
+from tru_agent_auto import replace_private
+p = Path(os.environ['AGENT_POLICY_FILE'])
+rt.safe_file(p)
+v = json.loads(p.read_text())
+if len(v['agents']) != 1:
+    raise SystemExit('This helper is for one reviewed agent only.')
+if v['agents'][0]['token_id'] != os.environ['AGENT_TOKEN_ID']:
+    raise SystemExit('Wrong token; nothing changed.')
+v['enabled'] = True
+v['agents'][0]['enabled'] = True
+replace_private(rt, p, rt.canonical(v))
+print('BOUNDED_POLICY_ENABLED')
+PY
+```
+
+Keep the encrypted Core wallet unlocked through your existing authenticated workflow. This patch does not store a passphrase or unlock the wallet. The original issuer must be available in that wallet, and the existing oracle funding path must have funds. Locked/unavailable wallets defer approval.
+
+### 15.4 Supervised first automatic checkpoint
+
+Save a meaningful new memory and exit chat, or use the shell command:
+
+```bash
+tru_agent remember 'Automatic checkpoint testing is enabled under a finite issuer-approved policy.'
+tru_agent auto-step --core-cli "$TRU_CLI"
+```
+
+Expected initial output includes `AUTO_REQUEST_EXPORTED`. This is a request, not a confirmed anchor. Within the worker polling interval, inspect the node log for:
+
+```text
+[TRU-AGENT-03] approved token=... checkpoint=... reserved_atoms=1000
+```
+
+Or it will log `deferred` with a reason (locked wallet, interval, budget, missing confirmation, identity mismatch, etc.). The existing anchor worker handles preparation/broadcast/recovery after approval.
+
+After mining, repeat:
+
+```bash
+tru_agent auto-step --core-cli "$TRU_CLI"
+```
+
+Expected completion includes `CHECKPOINT_ANCHOR_CONFIRMED=YES`, `ISSUER_AUTHORIZATION=VERIFIED`, a receipt path, and `AUTO_CHECKPOINT_COMPLETE`. A pending or invalid result does not advance the completed revision. Inspect persistent errors rather than manually creating a replacement request.
+
+`auto-state.json` retains the exact pending checkpoint path. `auto-pending-request.json` retains its authenticated public envelope. Crash recovery republishes the same envelope, so a restart after persistence but before the acknowledgement cannot authorize another copy.
+
+If manual evolution advances the token while a different checkpoint is pending, preserve outputs and investigate. Do not edit revisions, delete history, or repeatedly COMMIT to clear a conflict.
+
+### 15.5 Start the repeating watcher
+
+After the supervised test succeeds:
+
+```bash
+tru_agent auto-watch --core-cli "$TRU_CLI" --interval 60
+```
+
+Run this in a separate screen/session. It invokes a fresh `auto-step` process each minute. While an interactive agent chat holds the runtime lock, the watcher defers; it does not bypass locking. Exit chat to let it snapshot memory. Unchanged memory causes no new checkpoint and no fee.
+
+Ctrl+C stops the watcher. It does not revoke the Core policy or retract a request already exported. For a persistent user service, use the supplied `tru-agent-auto@.service` and follow `SERVICE.md` after the supervised test.
+
+The watcher needs the Core CLI for read-only confirmation and a local submission credential for the private inbox. It does not need the provider's API key and never calls a model while anchoring. The configured CLI still operates under your normal trusted local Core credentials; this prototype is not OS sandbox isolation from your own user account.
+
+## Pause, revoke, and recovery
+
+To stop **new automatic approvals**, set the policy document's root `enabled` to `false` using an atomic replacement, or set the individual agent's flag false. The worker notices at its next poll and rechecks the policy before committing. Stop the watcher as well if you want no new requests prepared.
+
+```bash
+python3 - <<'PY'
+import json, os, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(os.environ['TRU_AGENT_CODE']).parent))
+import tru_agent as rt
+from tru_agent_auto import replace_private
+p = Path(os.environ['AGENT_POLICY_FILE']); rt.safe_file(p)
+v = json.loads(p.read_text()); v['enabled'] = False
+replace_private(rt, p, rt.canonical(v))
+print('NEW_AUTO_APPROVALS_DISABLED')
+PY
+```
+
+**Already committed/queued/signed anchors continue through the existing queue.** Revocation cannot retract a transaction already broadcast. Budget is reserved at approval and never automatically refunded. Expiry also blocks new approvals, not completion of previously approved work.
+
+Deleting or editing the ledger is not a reset mechanism. Missing ledger with an advanced epoch fails closed against the pinned baseline. A stale baseline after manual evolution requires deliberate operator review before changing that baseline; an existing ledger is always retained.
+
+Keep the full runtime, policy/credential files, and Core off-chain evolution database in private consistent backups. Receipt verification is point-in-time; re-run `anchor-verify` if chain state changes. Core rechecks every prior anchor before approving another checkpoint. It cannot restore lost private memories from a digest.
+
+
+### 15.6 Prove the repeating watcher works
+
+After the supervised automatic checkpoint succeeds, leave one `auto-watch`
+running. In a second terminal restore the same function/paths, then save one
+new non-sensitive fact with `tru_agent remember 'A scheduled checkpoint test is in progress.'`.
+Do NOT invoke auto-step manually for this test. The watcher must export the
+request, later report confirmed issuer verification, and print
+`AUTO_CHECKPOINT_COMPLETE` by itself. Wait for the policy's minimum interval and
+mining; a 60-second poll does not mean a new fee every minute.
+
+Exit chat first: chat holds the runtime lock. After completion, subsequent polls
+should report `AUTO_NO_MEMORY_CHANGE`. Restart the watcher without changing
+memory; it should still report no change, with no new evolution or fee. This
+demonstrates unattended polling and persisted completed-revision recovery.
+Never delete pending state or relax limits merely to speed up the test.
+
+For continuous sessions use SERVICE.md. This does not automatically start Core,
+unlock the wallet, install a model, or enable service survival after logout.
+
+### 15.7 Edit an existing policy
+
+Change limits in the private `policy.json` generated by `auto-prepare`. Do not
+run `auto-prepare` again to adjust an existing agent. Core's `tru.conf` points to
+this file; the limits are not individual tru.conf or AI .env settings.
+
+Restore your actual runtime/script paths from step 10. Discover the policy path
+from the runtime's existing local configuration rather than guessing:
+
+```bash
+export AGENT_POLICY_FILE="$(python3 - <<'PY'
+import json, os
+from pathlib import Path
+root = Path(os.environ['TRU_AGENT_HOME']).expanduser()
+print(json.loads((root / 'auto-config.json').read_text())['policy_file'])
+PY
+)"
+python3 -m json.tool "$AGENT_POLICY_FILE"
+```
+
+For AXONA's existing installation the path is
+`$HOME/tru-agent-policies/axona/policy.json`. Other agents use their own generated
+path, or the reviewed aggregate policy path for a multi-agent installation.
+Do not publish the policy or its separate submission credential.
+
+| Agent field | Meaning | Supported range / behavior |
+|---|---|---|
+| `min_interval_seconds` | Minimum time between automatic approvals | 60–31536000 seconds; 300 = five minutes, 3600 = one hour |
+| `max_per_day` | Approval limit per UTC calendar day | 1–1000; prior approvals still count |
+| `total_budget_atoms` | Lifetime allowance for this token's automation ledger | 1000–1000000000000; includes already reserved amounts |
+| `expires_at_unix` | Deadline for new approvals | Unix timestamp in seconds; extending it grants more time |
+| `max_fee_atoms` | Per-approval fee limit | Keep at 1000 in this implementation |
+| `enabled` | Per-agent permission | Root `enabled` must also be true |
+
+Each approval reserves 1000 atoms. Reservations are not automatically refunded.
+Increasing the total budget increases the cumulative ceiling; it does not mean
+that amount of additional funds. Lowering it below existing usage prevents new
+approvals. Changing the interval does not reset the last approval time.
+
+#### Example: change only the interval to five minutes
+
+Set `AGENT_TOKEN_ID` to the actual short ID from issuance and inspect the policy
+before running this script. It backs up the existing file privately, selects
+exactly that token, and atomically replaces the policy. It preserves other agents
+and all other settings, including enable flags.
+
+```bash
+python3 - <<'PY'
+import json, os, sys
+from datetime import datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(os.environ['TRU_AGENT_CODE']).expanduser().parent))
+import tru_agent as rt
+from tru_agent_auto import replace_private
+
+path = Path(os.environ['AGENT_POLICY_FILE']).expanduser()
+token = os.environ['AGENT_TOKEN_ID'].strip()
+rt.safe_file(path)
+original = path.read_bytes()
+policy = json.loads(original)
+matches = [a for a in policy['agents'] if a['token_id'] == token]
+if not token or len(matches) != 1:
+    raise SystemExit('Expected exactly one matching token; nothing changed.')
+
+interval = 300  # Edit this number: 300 = five minutes; 3600 = one hour.
+if not 60 <= interval <= 31536000:
+    raise SystemExit('Interval out of range; nothing changed.')
+matches[0]['min_interval_seconds'] = interval
+
+backup = path.with_name('policy.json.backup-' +
+    datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
+rt.write_new(backup, original)
+if path.read_bytes() != original:
+    raise SystemExit('Policy changed during editing; no replacement made.')
+replace_private(rt, path, rt.canonical(policy))
+print('Backup:', backup)
+print('Token:', token)
+print('Minimum interval:', interval, 'seconds')
+PY
+```
+
+Only one operator should edit the policy at a time. For another supported limit,
+use the same backup/atomic replacement pattern with an explicitly reviewed value
+and its range from the table. Do not change identity pins, credential/inbox paths,
+manifest hash or baseline epoch as a shortcut to fix authorization errors.
+
+**No rebuild or Core restart is needed for policy JSON changes.** Core rereads it
+on its approximately 30-second worker poll. Editing the policy-file path or the
+startup enable gate in tru.conf does require restarting Core.
+
+A pending request can qualify as soon as the shorter interval has elapsed since
+the previous approval. It must still meet the daily cap, remaining budget, expiry,
+issuer/wallet checks and confirmed-history requirements. Keep the watcher running;
+do not delete pending state, re-export manually or repeat COMMIT.
+
+Monitor the Core log for `TRU-AGENT-03` approval or deferred reasons. An already
+approved anchor is not canceled by tightening limits or disabling the policy.
+Restoring a policy backup restores settings only, not the usage ledger. Never
+restore/delete an old ledger to reset spending history.
+
+### Multiple agents and backup
+
+Each agent needs its own token, private home, manifest, inbox and request key.
+Core reads one policy file; multiple agents require an aggregate agents array
+and each runtime's policy_file pointed to that same reviewed file. Do not point
+Core at only the last agent and assume earlier agents are still enabled. Use one
+Core data instance per allowance ledger; independent nodes do not share budgets.
+
+Private runtime and policy files are controlled by your OS account; this is not
+a sandbox for malicious programs running as that same user. Preserve runtime,
+policy/key, Core off-chain history and wallet backups. Do not reset counters,
+restore old allowance ledgers, or change manifest hashes without reviewing the
+consequences for existing checkpoints. Only publish reusable code and templates.
 
 ## Troubleshooting
 
